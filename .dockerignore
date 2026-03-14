@@ -1,0 +1,42 @@
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# Git
+.git/
+.github/
+
+# Caches Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Secrets (montés via volumes, jamais dans l'image)
+.rsa/
+secrets.toml
+.snowflake/
+
+# Données ChromaDB (persistées via volume)
+chroma_db_*/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Docs
+README.md
+SETUP.md

@@ -1,0 +1,27 @@
+services:
+  simple-rag-cli:
+    build: .
+    container_name: simple-rag-cli
+    # Interactive mode (required for input() in CLI)
+    stdin_open: true
+    tty: true
+    volumes:
+      # Secrets mounted in read-only — never included in the image
+      - ./secrets.toml:/app/secrets.toml:ro
+      - ./.rsa:/app/.rsa:ro
+      # ChromaDB data persistence between restarts
+      - chroma_data:/app/chroma_db_vanna
+      # ONNX models cache (avoids re-downloading 79 MB)
+      - chroma_cache:/root/.cache/chroma
+      # Mount source code for live development
+      - ./src:/app/src
+      - ./app.py:/app/app.py
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Local network access (LLM on 192.168.1.86)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  chroma_data:
+  chroma_cache:
