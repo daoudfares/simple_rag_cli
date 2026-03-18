@@ -145,6 +145,8 @@ class TestConfigLoader:
         from src.config import config_loader as mod
 
         good = tmp_path / "good.toml"
+        key_file = tmp_path / "k.p8"
+        key_file.write_text("dummy")
         good.write_text(
             "[llm.test_ollama]\n"
             'provider = "ollama"\n'

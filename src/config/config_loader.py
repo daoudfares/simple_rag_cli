@@ -85,6 +85,14 @@ _REQUIRED_LLM_KEYS_BY_PROVIDER: dict[str, set[str]] = {
 _config: dict[str, Any] | None = None
 
 
+def _resolve_path(value: str) -> Path:
+    """Resolve path values relative to the secrets.toml directory."""
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return candidate
+    return (_CONFIG_PATH.parent / candidate).resolve()
+
+
 def get_config() -> dict[str, Any]:
     """Load and return the full configuration (cached after first call)."""
     global _config

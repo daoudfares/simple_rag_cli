@@ -6,6 +6,7 @@ based on the named database profile from the configuration.
 """
 
 import logging
+from typing import Any
 
 from vanna.integrations.mysql import MySQLRunner
 from vanna.integrations.oracle import OracleRunner
@@ -19,7 +20,7 @@ from src.security.key_management import RSAKeyLoadError, get_snowflake_key_bytes
 logger = logging.getLogger(__name__)
 
 
-def _create_postgres_tool(config: dict) -> RunSqlTool:
+def _create_postgres_tool(config: dict[str, Any]) -> RunSqlTool:
     """Create Postgres RunSqlTool from config."""
     port = int(config.get("port", 5432))
     logger.info("Creating Postgres RunSqlTool for %s", config.get("database"))
@@ -34,7 +35,7 @@ def _create_postgres_tool(config: dict) -> RunSqlTool:
     )
 
 
-def _create_mysql_tool(config: dict) -> RunSqlTool:
+def _create_mysql_tool(config: dict[str, Any]) -> RunSqlTool:
     """Create MySQL RunSqlTool from config."""
     port = int(config.get("port", 3306))
     logger.info("Creating MySQL RunSqlTool for %s", config.get("database"))
@@ -49,7 +50,7 @@ def _create_mysql_tool(config: dict) -> RunSqlTool:
     )
 
 
-def _create_oracle_tool(config: dict) -> RunSqlTool:
+def _create_oracle_tool(config: dict[str, Any]) -> RunSqlTool:
     """Create Oracle RunSqlTool from config."""
     logger.info("Creating Oracle RunSqlTool for %s", config.get("dsn"))
     return RunSqlTool(
@@ -61,8 +62,16 @@ def _create_oracle_tool(config: dict) -> RunSqlTool:
     )
 
 
-def _create_snowflake_tool(config: dict) -> RunSqlTool:
-    """Create Snowflake RunSqlTool from config."""
+def _create_snowflake_tool(config: dict[str, Any]) -> RunSqlTool:
+    """
+    Create Snowflake RunSqlTool from config.
+
+    NB:The private_key goes into **kwargs and is likely used by the underlying Snowflake connector's 'connect()' call.
+    private_key_content is used by SnowflakeRunner to load the key, while private_key is passed directly to
+    snowflake.connector.connect().
+    The Snowflake connector requires private_key for key-pair auth, otherwise it falls back to password auth and fails
+    with "Password is empty".
+    """
     logger.info("Creating Snowflake RunSqlTool for %s.%s", config["database"], config["schema"])
     try:
         p_key_bytes = get_snowflake_key_bytes(config["private_key_path"])
@@ -84,7 +93,7 @@ def _create_snowflake_tool(config: dict) -> RunSqlTool:
     )
 
 
-_DB_TYPE_FACTORIES = {
+_DB_TYPE_FACTORIES: dict[str, Any] = {
     "postgresql": _create_postgres_tool,
     "mysql": _create_mysql_tool,
     "oracle": _create_oracle_tool,
@@ -105,14 +114,19 @@ def get_db_tool(db_name: str) -> RunSqlTool:
     Raises:
         ValueError: If the profile does not exist or the ``type`` is unknown.
     """
+    logger.info("Loading database tool for profile: %s", db_name)
     config = get_database_config(db_name)
     db_type = config["type"]  # guaranteed by config_loader validation
 
+    logger.debug("Database type: %s (profile: %s)", db_type, db_name)
     factory = _DB_TYPE_FACTORIES.get(db_type)
     if factory is None:
-        raise ValueError(
+        msg = (
             f"Unknown database type '{db_type}' in profile '{db_name}'. "
             f"Valid types: {', '.join(_DB_TYPE_FACTORIES)}"
         )
+        logger.error(msg)
+        raise ValueError(msg)
 
+    logger.info("Database tool for %s (%s) initialised successfully", db_name, db_type)
     return factory(config)

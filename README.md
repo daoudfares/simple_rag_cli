@@ -33,7 +33,14 @@ Conversational command-line agent to query databases (Snowflake, PostgreSQL, MyS
    warehouse = "YOUR_WAREHOUSE"      
    database = "YOUR_DATABASE"      
    schema = "YOUR_SCHEMA"           
+
+  [training]
+  # Optional cap used during non-demo Snowflake training (0 = no cap)
+  snowflake_table_limit = 0
    ```
+
+  For Snowflake, generate or place your RSA private key at the path set by
+  `private_key_path` (for example `.rsa/rsa_key.p8`).
 
 3. **Launch:**
    Run the app by specifying the profiles defined in your `secrets.toml`:

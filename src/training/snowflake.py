@@ -10,10 +10,29 @@ import os
 
 import snowflake.connector
 
+from src.config.config_loader import get_config
 from src.database.registry import DatabaseRegistry
 from src.training.base import BaseTrainer
 
 logger = logging.getLogger(__name__)
+
+
+def _get_snowflake_table_limit() -> int:
+    """Read Snowflake table limit from config, falling back to env var."""
+    try:
+        training_cfg = get_config().get("training", {})
+        value = training_cfg.get("snowflake_table_limit", 0)
+        limit = int(value)
+        if limit > 0:
+            return limit
+    except Exception:
+        pass
+
+    # Backward-compatible fallback for existing deployments.
+    try:
+        return int(os.environ.get("SNOWFLAKE_TRAIN_TABLE_LIMIT", ""))
+    except (ValueError, TypeError):
+        return 0
 
 TRAINING_EXAMPLES = [
     {
@@ -79,131 +98,129 @@ class SnowflakeTrainer(BaseTrainer):
         """Extract DDL from Snowflake via INFORMATION_SCHEMA."""
         conn = self.connection_factory.connect()
         logger.info("Connection established")
-        cursor = conn.cursor()
+        try:
+            cursor = conn.cursor()
 
-        table_query = (
-            "SELECT TABLE_NAME, TABLE_TYPE"
-            " FROM INFORMATION_SCHEMA.TABLES"
-            " WHERE TABLE_SCHEMA = CURRENT_SCHEMA()"
-            " ORDER BY TABLE_NAME;"
-        )
-        cursor.execute(table_query)
-        tables = cursor.fetchall()
-        logger.info("%d tables found", len(tables))
-
-        if self.demo:
-            limit = 5
-            logger.info("Demo mode active: targeting first %d tables/views", limit)
-        else:
-            try:
-                limit = int(os.environ.get("SNOWFLAKE_TRAIN_TABLE_LIMIT", ""))
-            except (ValueError, TypeError):
-                limit = 0  # no limit
-
-        if limit > 0 and len(tables) > limit:
-            logger.info("Limiting tables to first %d for training (was %d)", limit, len(tables))
-            tables = tables[:limit]
-
-        ddl = f"-- Snowflake Database: {conn.database}\n"
-        ddl += f"-- Schema: {conn.schema}\n\n"
-
-        for i, (table_name, table_type) in enumerate(tables, 1):
-            logger.info("[%d/%d] %s (%s)", i, len(tables), table_name, table_type)
-
-            cursor.execute(
-                """
-                SELECT
-                    COLUMN_NAME,
-                    DATA_TYPE,
-                    IS_NULLABLE,
-                    COLUMN_DEFAULT,
-                    CHARACTER_MAXIMUM_LENGTH,
-                    NUMERIC_PRECISION,
-                    NUMERIC_SCALE
-                FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
-                AND TABLE_NAME = %s
-                ORDER BY ORDINAL_POSITION;
-                """,
-                (table_name,),
+            table_query = (
+                "SELECT TABLE_NAME, TABLE_TYPE"
+                " FROM INFORMATION_SCHEMA.TABLES"
+                " WHERE TABLE_SCHEMA = CURRENT_SCHEMA()"
+                " ORDER BY TABLE_NAME;"
             )
-            columns = cursor.fetchall()
-            logger.debug("  %d columns", len(columns))
+            cursor.execute(table_query)
+            tables = cursor.fetchall()
+            logger.info("%d tables found", len(tables))
 
-            ddl += f"CREATE TABLE {table_name} (\n"
-            column_defs = []
+            if self.demo:
+                limit = 5
+                logger.info("Demo mode active: targeting first %d tables/views", limit)
+            else:
+                limit = _get_snowflake_table_limit()
 
-            for col in columns:
-                (
-                    col_name,
-                    data_type,
-                    is_nullable,
-                    col_default,
-                    char_max_len,
-                    num_precision,
-                    num_scale,
-                ) = col
+            if limit > 0 and len(tables) > limit:
+                logger.info("Limiting tables to first %d for training (was %d)", limit, len(tables))
+                tables = tables[:limit]
 
-                if data_type == "TEXT" and char_max_len:
-                    col_def = f"    {col_name} VARCHAR({char_max_len})"
-                elif data_type == "NUMBER" and num_precision:
-                    if num_scale:
-                        col_def = f"    {col_name} NUMBER({num_precision},{num_scale})"
-                    else:
-                        col_def = f"    {col_name} NUMBER({num_precision})"
-                else:
-                    col_def = f"    {col_name} {data_type}"
+            ddl = f"-- Snowflake Database: {conn.database}\n"
+            ddl += f"-- Schema: {conn.schema}\n\n"
 
-                if is_nullable == "NO":
-                    col_def += " NOT NULL"
+            for i, (table_name, table_type) in enumerate(tables, 1):
+                logger.info("[%d/%d] %s (%s)", i, len(tables), table_name, table_type)
 
-                if col_default:
-                    col_def += f" DEFAULT {col_default}"
-
-                column_defs.append(col_def)
-
-            ddl += ",\n".join(column_defs)
-            ddl += "\n);\n\n"
-
-        # views for snowflake only
-        cursor.execute("""
-            SELECT TABLE_NAME
-            FROM INFORMATION_SCHEMA.VIEWS
-            WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
-            ORDER BY TABLE_NAME;
-        """)
-        views = cursor.fetchall()
-        logger.info("%d views found", len(views))
-
-        if limit > 0 and len(views) > limit:
-            logger.info("Limiting views to first %d for training (was %d)", limit, len(views))
-            views = views[:limit]
-
-        if views:
-            ddl += "\n-- VIEWS --\n\n"
-            for (view_name,) in views:
-                try:
-                    cursor.execute(
-                        """
-                        SELECT COLUMN_NAME, DATA_TYPE
-                        FROM INFORMATION_SCHEMA.COLUMNS
-                        WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
-                        AND TABLE_NAME = %s
-                        ORDER BY ORDINAL_POSITION;
+                cursor.execute(
+                    """
+                    SELECT
+                        COLUMN_NAME,
+                        DATA_TYPE,
+                        IS_NULLABLE,
+                        COLUMN_DEFAULT,
+                        CHARACTER_MAXIMUM_LENGTH,
+                        NUMERIC_PRECISION,
+                        NUMERIC_SCALE
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
+                    AND TABLE_NAME = %s
+                    ORDER BY ORDINAL_POSITION;
                     """,
-                        (view_name,),
-                    )
-                    view_cols = cursor.fetchall()
-                    ddl += f"-- View: {view_name}\n"
-                    ddl += f"-- Columns: {', '.join(f'{c[0]} ({c[1]})' for c in view_cols)}\n\n"
-                    logger.info("  View %s — %d columns", view_name, len(view_cols))
-                except snowflake.connector.ProgrammingError as e:
-                    logger.debug("Skipping view %s: %s", view_name, e)
+                    (table_name,),
+                )
+                columns = cursor.fetchall()
+                logger.debug("  %d columns", len(columns))
 
-        conn.close()
-        logger.info("Connection closed")
+                ddl += f"CREATE TABLE {table_name} (\n"
+                column_defs = []
 
-        return ddl, len(tables)
+                for col in columns:
+                    (
+                        col_name,
+                        data_type,
+                        is_nullable,
+                        col_default,
+                        char_max_len,
+                        num_precision,
+                        num_scale,
+                    ) = col
+
+                    if data_type == "TEXT" and char_max_len:
+                        col_def = f"    {col_name} VARCHAR({char_max_len})"
+                    elif data_type == "NUMBER" and num_precision:
+                        if num_scale:
+                            col_def = f"    {col_name} NUMBER({num_precision},{num_scale})"
+                        else:
+                            col_def = f"    {col_name} NUMBER({num_precision})"
+                    else:
+                        col_def = f"    {col_name} {data_type}"
+
+                    if is_nullable == "NO":
+                        col_def += " NOT NULL"
+
+                    if col_default:
+                        col_def += f" DEFAULT {col_default}"
+
+                    column_defs.append(col_def)
+
+                ddl += ",\n".join(column_defs)
+                ddl += "\n);\n\n"
+
+            # views for snowflake only
+            cursor.execute("""
+                SELECT TABLE_NAME
+                FROM INFORMATION_SCHEMA.VIEWS
+                WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
+                ORDER BY TABLE_NAME;
+            """)
+            views = cursor.fetchall()
+            logger.info("%d views found", len(views))
+
+            if limit > 0 and len(views) > limit:
+                logger.info("Limiting views to first %d for training (was %d)", limit, len(views))
+                views = views[:limit]
+
+            if views:
+                ddl += "\n-- VIEWS --\n\n"
+                for (view_name,) in views:
+                    try:
+                        cursor.execute(
+                            """
+                            SELECT COLUMN_NAME, DATA_TYPE
+                            FROM INFORMATION_SCHEMA.COLUMNS
+                            WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
+                            AND TABLE_NAME = %s
+                            ORDER BY ORDINAL_POSITION;
+                        """,
+                            (view_name,),
+                        )
+                        view_cols = cursor.fetchall()
+                        ddl += f"-- View: {view_name}\n"
+                        ddl += f"-- Columns: {', '.join(f'{c[0]} ({c[1]})' for c in view_cols)}\n\n"
+                        logger.info("  View %s — %d columns", view_name, len(view_cols))
+                    except snowflake.connector.ProgrammingError as e:
+                        logger.debug("Skipping view %s: %s", view_name, e)
+
+            return ddl, len(tables)
+        finally:
+            conn.close()
+            logger.info("Connection closed")
 
     async def add_examples(self) -> None:
         """Add question->SQL examples for Snowflake."""

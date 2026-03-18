@@ -94,14 +94,12 @@ def test_format_chart_disabled():
     assert "Type 'charts on' to enable" in result.renderable.plain
 
 
-def test_format_chart_enabled(monkeypatch):
-    # Mock os.makedirs, pio.write_html, and webbrowser.open
-    mock_makedirs = MagicMock()
+def test_format_chart_enabled(monkeypatch, tmp_path):
+    # Mock pio.write_html and browser open
     mock_write_html = MagicMock()
     mock_open = MagicMock()
 
-    monkeypatch.setattr("os.makedirs", mock_makedirs)
-    monkeypatch.setattr("os.getcwd", lambda: "/tmp")
+    monkeypatch.setattr("src.ui.formatter.CHART_EXPORT_DIR", tmp_path)
     monkeypatch.setattr("plotly.io.write_html", mock_write_html)
     monkeypatch.setattr("webbrowser.open", mock_open)
 

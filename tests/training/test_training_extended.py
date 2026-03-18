@@ -9,6 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Importing trainer modules triggers DatabaseRegistry.register_trainer() calls.
+import src.training.mysql  # noqa: F401
+import src.training.oracle  # noqa: F401
+import src.training.postgres  # noqa: F401
 from src.training.snowflake import (
     SNOWFLAKE_DOCUMENTATION,
     TRAINING_EXAMPLES,
