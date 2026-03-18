@@ -43,9 +43,19 @@ class DatabaseRegistry:
         trainer_cls = cls._trainers.get(db_type.lower())
         if not trainer_cls:
             raise ValueError(f"No trainer registered for database type '{db_type}'")
-        return trainer_cls(connection_factory, agent_memory)
+        return trainer_cls(agent_memory, connection_factory)
 
     @classmethod
     def get_supported_types(cls) -> list[str]:
         """Return list of supported database types."""
         return list(cls._connections.keys())
+
+
+def register_all_builtins() -> None:
+    """Explicitly register all built-in database connections and trainers."""
+    import src.database.connections.mysql  # noqa: F401
+    import src.database.connections.oracle  # noqa: F401
+    import src.database.connections.postgres  # noqa: F401
+    import src.database.connections.snowflake  # noqa: F401
+    from src.training import mysql, oracle, postgres, snowflake  # noqa: F401
+

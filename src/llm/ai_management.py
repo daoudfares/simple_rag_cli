@@ -6,6 +6,7 @@ and tool registry used by the Vanna AI agent.
 """
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from vanna.core.registry import ToolRegistry
@@ -18,6 +19,7 @@ from vanna.tools.agent_memory import (
 )
 
 from src.config.config_loader import get_llm_config
+from src.config.paths import CHROMA_DB_DIR, ensure_runtime_dirs
 from src.llm.providers.anthropic import AnthropicLLM
 
 # local llm type classes
@@ -36,9 +38,9 @@ class RobustVisualizeDataTool(VisualizeDataTool):
     a helpful message as a string.
     """
 
-    async def execute(self, **kwargs) -> Any:
+    async def execute(self, request_context: Any, conversation_id: str, **kwargs) -> Any:
         try:
-            return await super().execute(**kwargs)
+            return await super().execute(request_context, conversation_id, **kwargs)
         except Exception as e:
             logger.error("Visualization tool failed: %s", e)
             # Return a friendly error message instead of crashing
@@ -90,18 +92,35 @@ def get_llm(llm_name: str) -> BaseLLM:
 
 def get_agent_memory(
     collection_name: str = "vanna_memory",
-    persist_directory: str = "./chroma_db_vanna",
+    persist_directory: str | Path = CHROMA_DB_DIR,
 ) -> ChromaAgentMemory:
     """Return the ChromaDB agent memory instance.
 
     Args:
         collection_name: Name of the ChromaDB collection (default: ``vanna_memory``).
         persist_directory: Path to persist the ChromaDB data (default: ``./chroma_db_vanna``).
+
+    Returns:
+        A ChatAgentMemory instance backed by ChromaDB.
     """
-    return ChromaAgentMemory(
-        collection_name=collection_name,
-        persist_directory=persist_directory,
+    persist_directory = str(Path(persist_directory).resolve())
+    ensure_runtime_dirs()
+
+    logger.info(
+        "Initialising ChromaDB agent memory: collection=%s, persist_dir=%s",
+        collection_name,
+        persist_directory,
     )
+    try:
+        memory = ChromaAgentMemory(
+            collection_name=collection_name,
+            persist_directory=persist_directory,
+        )
+        logger.debug("ChromaDB agent memory initialised successfully")
+        return memory
+    except Exception as e:
+        logger.error("Failed to initialise ChromaDB agent memory: %s", e, exc_info=True)
+        raise
 
 
 def get_tool_registry(db_tool: Any) -> ToolRegistry:

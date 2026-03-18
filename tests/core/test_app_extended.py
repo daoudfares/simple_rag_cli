@@ -18,6 +18,8 @@ class TestQueryAgent:
         mock_agent = MagicMock()
         mock_feedback = MagicMock()
         mock_feedback.store_interaction = MagicMock()
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze = AsyncMock(return_value={"complexity": "SIMPLE"})
 
         sql_component = SimpleNamespace(sql="SELECT 1", text="Here is the result")
         text_component = SimpleNamespace(text=" with more info")
@@ -28,7 +30,7 @@ class TestQueryAgent:
 
         mock_agent.send_message = fake_send_message
 
-        asyncio.run(query_agent(mock_agent, mock_feedback, "test question"))
+        asyncio.run(query_agent(mock_agent, mock_feedback, mock_analyzer, "test question"))
 
         mock_feedback.store_interaction.assert_called_once_with(
             question="test question",
@@ -42,6 +44,8 @@ class TestQueryAgent:
 
         mock_agent = MagicMock()
         mock_feedback = MagicMock()
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze = AsyncMock(return_value={"complexity": "SIMPLE"})
 
         async def fail_send(**kwargs):
             raise RuntimeError("agent crash")
@@ -49,7 +53,7 @@ class TestQueryAgent:
 
         mock_agent.send_message = fail_send
 
-        asyncio.run(query_agent(mock_agent, mock_feedback, "fail"))
+        asyncio.run(query_agent(mock_agent, mock_feedback, mock_analyzer, "fail"))
         mock_feedback.store_interaction.assert_not_called()
 
     def test_query_agent_no_sql_component(self):
@@ -59,6 +63,8 @@ class TestQueryAgent:
         mock_agent = MagicMock()
         mock_feedback = MagicMock()
         mock_feedback.store_interaction = MagicMock()
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze = AsyncMock(return_value={"complexity": "SIMPLE"})
 
         text_only = SimpleNamespace(text="Just a response")
 
@@ -67,7 +73,7 @@ class TestQueryAgent:
 
         mock_agent.send_message = fake_send
 
-        asyncio.run(query_agent(mock_agent, mock_feedback, "no sql"))
+        asyncio.run(query_agent(mock_agent, mock_feedback, mock_analyzer, "no sql"))
 
         mock_feedback.store_interaction.assert_called_once_with(
             question="no sql",
@@ -166,6 +172,8 @@ class TestInteractiveMode:
         mock_agent = MagicMock()
         mock_memory = MagicMock()
         mock_fm = MagicMock()
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze = AsyncMock(return_value={"complexity": "SIMPLE"})
 
         input_iter = iter(inputs)
 
@@ -177,7 +185,7 @@ class TestInteractiveMode:
             loop.run_in_executor = fake_input
             mock_loop.return_value = loop
 
-            asyncio.run(interactive_mode(mock_agent, mock_memory, mock_fm))
+            asyncio.run(interactive_mode(mock_agent, mock_memory, mock_fm, mock_analyzer))
 
     def test_exit_command(self):
         """interactive_mode should exit on 'exit' command."""

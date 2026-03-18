@@ -13,14 +13,16 @@ from vanna.core.tool.models import ToolContext
 from vanna.core.user import User
 from vanna.integrations.chromadb import ChromaAgentMemory
 
+from src.config.constants import DEFAULT_USER_EMAIL
+
 logger = logging.getLogger(__name__)
 
 
 def _build_training_context(agent_memory: ChromaAgentMemory) -> ToolContext:
     """Create a ToolContext for training operations."""
     user = User(
-        id="admin@example.com",
-        email="admin@example.com",
+        id=DEFAULT_USER_EMAIL,
+        email=DEFAULT_USER_EMAIL,
         group_memberships=["admin"],
     )
     return ToolContext(

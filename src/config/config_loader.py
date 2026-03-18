@@ -85,6 +85,14 @@ _REQUIRED_LLM_KEYS_BY_PROVIDER: dict[str, set[str]] = {
 _config: dict[str, Any] | None = None
 
 
+def _resolve_path(value: str) -> Path:
+    """Resolve path values relative to the secrets.toml directory."""
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return candidate
+    return (_CONFIG_PATH.parent / candidate).resolve()
+
+
 def get_config() -> dict[str, Any]:
     """Load and return the full configuration (cached after first call)."""
     global _config
@@ -148,6 +156,15 @@ def _load_config() -> dict[str, Any]:
             if missing:
                 raise ValueError(
                     f"Missing required keys in [database.{name}] for type '{db_type}': {missing}"
+                )
+
+        if db_type == "snowflake":
+            key_path = str(block.get("private_key_path", "")).strip()
+            resolved_key_path = _resolve_path(key_path)
+            if not key_path or not resolved_key_path.exists():
+                raise ValueError(
+                    f"Invalid private_key_path in [database.{name}]: {key_path!r} "
+                    f"(resolved to {resolved_key_path})"
                 )
 
     return config

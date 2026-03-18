@@ -5,7 +5,7 @@ Unit tests for the LLM class hierarchy defined in ``src.models``.
 from unittest.mock import MagicMock, patch
 
 from src.llm.providers.anthropic import AnthropicLLM
-from src.llm.providers.base import BaseLLM
+from src.llm.providers.base import BaseLLM, LLMResponse
 from src.llm.providers.gemini import GeminiLLM
 from src.llm.providers.local_llm import LocalLLM
 from src.llm.providers.ollama import OllamaLLM
@@ -44,7 +44,7 @@ class TestLLMClasses:
             MockService.assert_called_once_with(model="gemini-2.0-flash", api_key="test-key")
             assert obj.service is MockService.return_value
 
-    def test_base_generate_delegates(self):
+    async def test_base_generate_delegates(self):
         # create a fake subclass to exercise BaseLLM.generate
         class Fake(BaseLLM):
             def __init__(self):
@@ -52,4 +52,18 @@ class TestLLMClasses:
 
         f = Fake()
         f.service.generate.return_value = "xyz"
-        assert f.generate("prompt") == "xyz"
+        assert await f.generate("prompt") == LLMResponse(text="xyz")
+
+    async def test_base_generate_falls_back_to_submit_prompt(self):
+        """BaseLLM.generate should fallback to submit_prompt if generate is missing."""
+
+        class FakeService:
+            def submit_prompt(self, prompt, **kwargs):
+                return f"Response to {prompt}"
+
+        class FakeLLM(BaseLLM):
+            def __init__(self):
+                self.service = FakeService()
+
+        f = FakeLLM()
+        assert await f.generate("hello") == LLMResponse(text="Response to hello")

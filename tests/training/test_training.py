@@ -12,9 +12,9 @@ class TestTrainIfNeeded:
     """Tests for the training guard logic."""
 
     def test_skips_when_memory_populated(self):
-        """train_if_needed should skip training when collection has documents."""
+        """train_if_needed should skip training when memory has text memories."""
         mock_memory = MagicMock()
-        mock_memory._get_collection.return_value.count.return_value = 42
+        mock_memory.get_recent_text_memories = AsyncMock(return_value=["memory_1", "memory_2"])
         mock_factory = MagicMock()
 
         with patch("src.training.trainer.train_agent", new_callable=AsyncMock) as mock_train:
@@ -22,29 +22,42 @@ class TestTrainIfNeeded:
             mock_train.assert_not_called()
 
     def test_trains_when_memory_empty(self):
-        """train_if_needed should call train_agent when collection is empty."""
+        """train_if_needed should call train_agent when memory has no text memories."""
         mock_memory = MagicMock()
-        mock_memory._get_collection.return_value.count.return_value = 0
+        mock_memory.get_recent_text_memories = AsyncMock(return_value=[])
         mock_factory = MagicMock()
 
         with patch("src.training.trainer.train_agent", new_callable=AsyncMock) as mock_train:
             asyncio.run(train_if_needed(mock_memory, mock_factory))
             mock_train.assert_called_once_with(mock_memory, mock_factory, demo=False)
 
-    def test_trains_when_count_fails(self):
-        """train_if_needed should train when collection.count() raises."""
+    def test_trains_when_get_recent_fails_fallback_to_search(self):
+        """train_if_needed should fallback to search_text_memories when get_recent_text_memories fails."""
         mock_memory = MagicMock()
-        mock_memory._get_collection.side_effect = Exception("no collection")
+        mock_memory.get_recent_text_memories = AsyncMock(side_effect=Exception("method unavailable"))
+        mock_memory.search_text_memories = AsyncMock(return_value=[])
         mock_factory = MagicMock()
 
         with patch("src.training.trainer.train_agent", new_callable=AsyncMock) as mock_train:
             asyncio.run(train_if_needed(mock_memory, mock_factory))
-            mock_train.assert_called_once()
+            mock_train.assert_called_once_with(mock_memory, mock_factory, demo=False)
+
+    def test_trains_when_all_checks_fail(self):
+        """train_if_needed should train when all memory checks fail (pessimistic approach)."""
+        mock_memory = MagicMock()
+        mock_memory.get_recent_text_memories = AsyncMock(side_effect=Exception("no method"))
+        mock_memory.search_text_memories = AsyncMock(side_effect=Exception("no collection"))
+        mock_factory = MagicMock()
+
+        with patch("src.training.trainer.train_agent", new_callable=AsyncMock) as mock_train:
+            asyncio.run(train_if_needed(mock_memory, mock_factory))
+            # Should train because we can't determine if memory exists
+            mock_train.assert_called_once_with(mock_memory, mock_factory, demo=False)
 
     def test_train_agent_generic_backend(self):
         """train_if_needed should still invoke train_agent with non-snowflake factory."""
         mock_memory = MagicMock()
-        mock_memory._get_collection.return_value.count.return_value = 0
+        mock_memory.get_recent_text_memories = AsyncMock(return_value=[])
 
         class DummyFactory:
             backend = "mysql"

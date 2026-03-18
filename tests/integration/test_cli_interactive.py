@@ -43,12 +43,13 @@ class TestCLIIntegration:
             "agent_memory": MagicMock(),
             "feedback_manager": MagicMock(),
             "connection_factory": MagicMock(),
+            "analyzer": MagicMock(),
         }
         mock_create_app.return_value = mock_app
 
         await app.main()
 
-        mock_create_app.assert_called_once_with(llm_name="test_llm", db_name="test_db")
+        mock_create_app.assert_called_once_with(llm_name="test_llm", db_name="test_db", router_llm_name=args.router_llm)
         mock_train.assert_awaited_once_with(
             mock_app["agent_memory"], mock_app["connection_factory"], demo=args.demo
         )
@@ -56,6 +57,7 @@ class TestCLIIntegration:
             agent=mock_app["agent"],
             agent_memory=mock_app["agent_memory"],
             feedback_manager=mock_app["feedback_manager"],
+            analyzer=mock_app["analyzer"],
             raw=args.raw,
             show_charts=args.show_charts,
         )
@@ -69,13 +71,15 @@ class TestCLIIntegration:
         mock_agent = MagicMock()
         mock_memory = MagicMock()
         mock_feedback = MagicMock()
+        mock_analyzer = MagicMock()
 
-        await app.interactive_mode(mock_agent, mock_memory, mock_feedback)
+        await app.interactive_mode(mock_agent, mock_memory, mock_feedback, mock_analyzer)
 
         # User asked one question before exiting
         mock_query_agent.assert_awaited_once_with(
             mock_agent,
             mock_feedback,
+            mock_analyzer,
             "What is the total sales?",
             "admin@example.com",
             raw=False,
@@ -96,12 +100,14 @@ class TestCLIIntegration:
         mock_agent = MagicMock()
         mock_memory = MagicMock()
         mock_feedback = MagicMock()
+        mock_analyzer = MagicMock()
 
-        await app.interactive_mode(mock_agent, mock_memory, mock_feedback)
+        await app.interactive_mode(mock_agent, mock_memory, mock_feedback, mock_analyzer)
 
         mock_query_agent.assert_awaited_once_with(
             mock_agent,
             mock_feedback,
+            mock_analyzer,
             "Show me data",
             "test@example.com",
             raw=False,
@@ -113,6 +119,8 @@ class TestCLIIntegration:
         """Test that query_agent yields responses from the agent and stores feedback."""
         mock_agent = MagicMock()
         mock_feedback_manager = MagicMock()
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze = AsyncMock(return_value={"complexity": "SIMPLE"})
 
         # Mock the stream of components returned by the agent
         async def mock_send_message(*args, **kwargs):
@@ -135,6 +143,7 @@ class TestCLIIntegration:
         await app.query_agent(
             agent=mock_agent,
             feedback_manager=mock_feedback_manager,
+            analyzer=mock_analyzer,
             question="Show test?",
             user_email="test@user.com",
         )

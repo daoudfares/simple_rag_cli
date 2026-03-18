@@ -76,3 +76,6 @@ Thumbs.db
 
 chroma_db_*/
 secrets.toml
+
+# Project exports
+exports/

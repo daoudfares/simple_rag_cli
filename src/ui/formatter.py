@@ -1,3 +1,5 @@
+import logging
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console, RenderableType
@@ -5,6 +7,10 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+from src.config.paths import CHART_EXPORT_DIR
+
+logger = logging.getLogger(__name__)
 
 
 class CLIFormatter:
@@ -142,7 +148,6 @@ class CLIFormatter:
         )
 
     def _handle_chart(self, component: Any) -> RenderableType:
-        import os
         import webbrowser
         from datetime import datetime
 
@@ -165,21 +170,21 @@ class CLIFormatter:
 
         try:
             # Create exports directory if it doesn't exist
-            export_dir = os.path.join(os.getcwd(), "exports", "charts")
-            os.makedirs(export_dir, exist_ok=True)
+            export_dir: Path = CHART_EXPORT_DIR
+            export_dir.mkdir(parents=True, exist_ok=True)
 
             # Generate filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_title = "".join([c if c.isalnum() else "_" for c in title]).strip("_")
             filename = f"chart_{timestamp}_{safe_title}.html"
-            filepath = os.path.join(export_dir, filename)
+            filepath = export_dir / filename
 
             # Save as HTML
             # pio.write_html accepts a figure or a dict representing a figure
-            pio.write_html(data, file=filepath, auto_open=False, title=title)
+            pio.write_html(data, file=str(filepath), auto_open=False)
 
             # Open in browser
-            webbrowser.open(f"file://{filepath}")
+            webbrowser.open(filepath.as_uri())
 
             return Panel(
                 Text.assemble(
@@ -187,11 +192,12 @@ class CLIFormatter:
                     ("Chart opened in browser: ", "bold"),
                     (filename, "blue underline"),
                     ("\nSaved to: ", "dim"),
-                    (filepath, "dim italic"),
+                    (str(filepath), "dim italic"),
                 ),
                 border_style="green",
             )
         except Exception as e:
+            logger.error("Chart export/display failed: %s", e, exc_info=True)
             return Panel(
                 Text(f"❌ Error displaying chart: {e}", style="red"),
                 title="Chart Error",
