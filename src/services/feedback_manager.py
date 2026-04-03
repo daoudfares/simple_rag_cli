@@ -47,14 +47,29 @@ class FeedbackManager:
     def store_interaction(
         self,
         question: str,
-        sql: str | None = None,
+        sql: str | list[str] | None = None,
         response: str | None = None,
         user_email: str = DEFAULT_USER_EMAIL,
     ) -> None:
-        """Store the last interaction for later feedback."""
+        """Store the last interaction for later feedback.
+
+        Args:
+            question: The original user question.
+            sql: A single SQL string, a list of SQL strings (for complex
+                 questions with multiple sub-queries), or None.
+            response: The textual response or synthesis report.
+            user_email: Email of the user who asked the question.
+        """
+        # Normalize: combine multiple SQLs into a single string for storage
+        if isinstance(sql, list):
+            non_empty = [s for s in sql if s]
+            sql_to_store = "\n-- ---\n".join(non_empty) if non_empty else None
+        else:
+            sql_to_store = sql
+
         self.last_interaction = {
             "question": question,
-            "sql": sql,
+            "sql": sql_to_store,
             "response": response,
         }
 

@@ -132,8 +132,10 @@ def create_app(llm_name: str, db_name: str, router_llm_name: str | None = None) 
         )
 
         # 9. Question Analyzer
+        #    router_llm handles classification (fast/cheap),
+        #    main llm handles final synthesis (quality).
         logger.debug("Initialising question analyzer")
-        analyzer = QuestionAnalyzer(router_llm)
+        analyzer = QuestionAnalyzer(router_llm, synthesis_llm=llm)
 
         # 10. Feedback manager
         logger.debug("Initialising feedback manager")
@@ -216,34 +218,75 @@ async def query_agent(
         results = []
         formatter = None if raw else CLIFormatter(show_charts=show_charts)
 
+        # Shared conversation_id so the agent retains context
+        # across sub-questions (e.g. sub-question 2 can reference
+        # tables or results mentioned in sub-question 1).
+        shared_conversation_id = str(uuid.uuid4())
+
         # Execute sub-questions sequentially to avoid interleaved console output
         for sq in sub_questions:
             sq_response = ""
             sq_sql = None
+            sq_dataframes: list[dict] = []
 
             if not raw:
                 print(f"\n⏳ Processing sub-question: {sq}")
 
-            async for component in agent.send_message(
-                request_context=request_context,
-                message=sq,
-                conversation_id=None,
-            ):
-                actual_component = _unwrap_component(component)
+            # Isolate errors per sub-question so partial
+            # results are preserved and remaining sub-questions
+            # continue executing.
+            try:
+                async for component in agent.send_message(
+                    request_context=request_context,
+                    message=sq,
+                    conversation_id=shared_conversation_id,
+                ):
+                    actual_component = _unwrap_component(component)
 
+                    if raw:
+                        emit(component_to_dict(actual_component))
+                    else:
+                        renderable = formatter.format_component(actual_component)
+                        if renderable:
+                            formatter.console.print(renderable)
+
+                    if hasattr(actual_component, "sql"):
+                        sq_sql = actual_component.sql
+                    if hasattr(actual_component, "text"):
+                        sq_response += actual_component.text
+
+                    # Collect structured DataFrame data so the
+                    # synthesis prompt can reason over actual rows/columns
+                    # instead of just concatenated text.
+                    if hasattr(actual_component, "rows") and hasattr(actual_component, "columns"):
+                        sq_dataframes.append({
+                            "title": getattr(actual_component, "title", "Results"),
+                            "columns": actual_component.columns,
+                            "rows": actual_component.rows,
+                        })
+
+                results.append({
+                    "question": sq,
+                    "response": sq_response,
+                    "sql": sq_sql,
+                    "dataframes": sq_dataframes,
+                })
+
+            except Exception as e:
+                logger.error("Sub-question failed: %s — %s", sq, e)
+                error_msg = str(e)
                 if raw:
-                    emit(component_to_dict(actual_component))
+                    emit({"type": "sub_question_error", "question": sq, "error": error_msg})
                 else:
-                    renderable = formatter.format_component(actual_component)
-                    if renderable:
-                        formatter.console.print(renderable)
+                    print(f"  ⚠️ Error on this sub-question: {error_msg}")
 
-                if hasattr(actual_component, "sql"):
-                    sq_sql = actual_component.sql
-                if hasattr(actual_component, "text"):
-                    sq_response += actual_component.text
-
-            results.append({"question": sq, "response": sq_response, "sql": sq_sql})
+                results.append({
+                    "question": sq,
+                    "response": "",
+                    "sql": None,
+                    "dataframes": [],
+                    "error": error_msg,
+                })
 
         # 2. Synthesize final report
         if not raw:
@@ -258,10 +301,12 @@ async def query_agent(
                 Panel(Markdown(final_report), title="[bold]Final Report[/bold]", border_style="green")
             )
 
-        # Store interaction (take first SQL if needed, or handle differently)
+        # Store ALL SQL queries from every sub-question,
+        # not just the first, so feedback covers the full pipeline.
+        all_sqls = [r["sql"] for r in results if r.get("sql")]
         feedback_manager.store_interaction(
             question=question,
-            sql=results[0]["sql"] if results else None,
+            sql=all_sqls if all_sqls else None,
             response=final_report,
         )
 
