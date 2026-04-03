@@ -74,6 +74,18 @@ TRAINING_EXAMPLES = [
             "FROM {schema}.{table}"
         ),
     },
+    {
+        "question": "Show the primary keys of all tables in the schema",
+        "sql": "SHOW PRIMARY KEYS IN SCHEMA {database}.{schema}",
+    },
+    {
+        "question": "Show foreign key relationships between tables",
+        "sql": "SHOW IMPORTED KEYS IN SCHEMA {database}.{schema}",
+    },
+    {
+        "question": "Show all constraints on a specific table",
+        "sql": "SHOW PRIMARY KEYS IN TABLE {schema}.<TABLE>",
+    },
 ]
 
 SNOWFLAKE_DOCUMENTATION = """
@@ -88,6 +100,22 @@ Snowflake SQL Documentation:
 - Date functions: DATEADD, DATEDIFF, DATE_TRUNC, CURRENT_DATE().
 - Use FLATTEN to parse VARIANT / JSON columns.
 - CTEs (WITH ... AS) are preferred over nested subqueries.
+
+Snowflake INFORMATION_SCHEMA limitations (IMPORTANT):
+- Snowflake INFORMATION_SCHEMA does NOT include: KEY_COLUMN_USAGE, \
+CONSTRAINT_COLUMN_USAGE, TABLE_CONSTRAINTS, REFERENTIAL_CONSTRAINTS.
+- These views exist in PostgreSQL/MySQL/SQL Server but NOT in Snowflake.
+- To discover primary keys use: SHOW PRIMARY KEYS IN SCHEMA <database>.<schema>
+- To discover foreign keys use: SHOW IMPORTED KEYS IN SCHEMA <database>.<schema>
+- To discover constraints on a table use: SHOW PRIMARY KEYS IN TABLE <schema>.<table>
+- The available INFORMATION_SCHEMA views are: TABLES, COLUMNS, VIEWS, SCHEMATA, \
+DATABASES, APPLICABLE_ROLES, ENABLED_ROLES, SEQUENCES, STAGES, FILE_FORMATS, PIPES, \
+FUNCTIONS, PROCEDURES, OBJECT_PRIVILEGES, USAGE_PRIVILEGES, TABLE_PRIVILEGES.
+
+SQL execution constraints:
+- Do NOT use USE DATABASE or USE SCHEMA — the session context is already set.
+- Only submit one statement per execution (no multi-statement blocks with semicolons).
+- If a query fails, try a completely different approach instead of retrying the same query.
 """
 
 
@@ -224,10 +252,16 @@ class SnowflakeTrainer(BaseTrainer):
 
     async def add_examples(self) -> None:
         """Add question->SQL examples for Snowflake."""
-        schema = getattr(self.connection_factory, "schema", "PUBLIC") or "PUBLIC"
+        schema = str(getattr(self.connection_factory, "schema", "PUBLIC") or "PUBLIC")
+        database = str(getattr(self.connection_factory, "database", "") or "")
 
         for i, example in enumerate(TRAINING_EXAMPLES, 1):
-            sql = example["sql"].replace("{schema}", schema).replace("{table}", "<TABLE>")
+            sql = (
+                example["sql"]
+                .replace("{database}", database)
+                .replace("{schema}", schema)
+                .replace("{table}", "<TABLE>")
+            )
             training_content = f"Question: {example['question']}\nSQL: {sql}\nStatus: VALIDATED"
             await self.agent_memory.save_text_memory(content=training_content, context=self.context)
             logger.info('  [%d/%d] Q: "%s"', i, len(TRAINING_EXAMPLES), example["question"])

@@ -62,11 +62,32 @@ class VannaSystemPromptBuilder(DefaultSystemPromptBuilder):
                 [
                     "",
                     "Snowflake-specific reminders:",
-                    "- Use INFORMATION_SCHEMA.TABLES (not sqlite_master, pg_catalog, etc.)",
+                    "- Use INFORMATION_SCHEMA.TABLES to list tables",
+                    "- Use INFORMATION_SCHEMA.COLUMNS to list columns of a table",
                     "- Use CURRENT_SCHEMA() for the current schema",
                     "- Use LIMIT (not TOP) to limit results",
                     "- Use QUALIFY for window function filters",
                     "- Use FLATTEN for JSON / VARIANT columns",
+                    "",
+                    "CRITICAL Snowflake INFORMATION_SCHEMA limitations:",
+                    "- NEVER use INFORMATION_SCHEMA.KEY_COLUMN_USAGE — it does NOT exist in Snowflake",
+                    "- NEVER use INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE — it does NOT exist in Snowflake",
+                    "- NEVER use INFORMATION_SCHEMA.TABLE_CONSTRAINTS — it does NOT exist in Snowflake",
+                    "- NEVER use INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS — it does NOT exist in Snowflake",
+                    "- To find primary keys, use: SHOW PRIMARY KEYS IN SCHEMA "
+                    f"{self._database}.{self._schema}"
+                    if self._schema
+                    else f"{self._database}",
+                    "- To find foreign keys, use: SHOW IMPORTED KEYS IN SCHEMA "
+                    f"{self._database}.{self._schema}"
+                    if self._schema
+                    else f"{self._database}",
+                    "",
+                    "SQL execution rules:",
+                    "- Do NOT use USE DATABASE or USE SCHEMA commands — the connection context is already set",
+                    "- Only generate SELECT or SHOW statements — never DDL (CREATE/ALTER/DROP) or DML (INSERT/UPDATE/DELETE)",
+                    "- Do NOT send multiple statements separated by semicolons in a single call",
+                    "- If a query fails, try a DIFFERENT approach — do NOT retry the same query",
                 ]
             )
         elif self._db_type == "postgresql":

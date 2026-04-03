@@ -204,3 +204,18 @@ def get_database_config(name: str) -> dict[str, Any]:
             f"Database profile '{name}' not found in configuration. Available profiles: {available}"
         )
     return profiles[name]
+
+
+def get_output_config() -> dict[str, Any]:
+    """Return the ``[output]`` configuration section.
+
+    Returns an empty dict when the section is absent so callers can
+    safely use ``.get()`` without guarding against ``None``.
+
+    If ``log_file`` is present and is a relative path it is resolved
+    relative to the directory containing ``secrets.toml``.
+    """
+    section = dict(get_config().get("output", {}))
+    if "log_file" in section:
+        section["log_file"] = str(_resolve_path(section["log_file"]))
+    return section

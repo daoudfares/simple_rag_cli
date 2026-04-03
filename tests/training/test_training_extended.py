@@ -85,8 +85,8 @@ class TestTrainAgentSnowflake:
             mock_ctx.return_value = MagicMock()
             asyncio.run(train_agent(mock_memory, snowflake_factory))
 
-        # DDL + 6 examples + 1 doc = 8 calls
-        assert mock_memory.save_text_memory.call_count == 8
+        # DDL + 9 examples + 1 doc = 11 calls
+        assert mock_memory.save_text_memory.call_count == 11
 
         first_call = mock_memory.save_text_memory.call_args_list[0]
         ddl = first_call.kwargs.get("content", first_call[1].get("content", ""))

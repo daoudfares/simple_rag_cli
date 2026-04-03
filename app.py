@@ -18,6 +18,7 @@ import uuid
 from rich.markdown import Markdown
 from rich.panel import Panel
 from vanna import Agent
+from vanna.core.agent.config import AgentConfig
 from vanna.core.tool.models import ToolContext
 from vanna.core.user import RequestContext, User
 
@@ -37,7 +38,13 @@ from src.services.feedback_manager import FeedbackManager
 from src.services.question_analyzer import QuestionAnalyzer
 from src.training.trainer import train_if_needed
 from src.ui.formatter import CLIFormatter
-from src.ui.json_serializer import component_to_dict, emit
+from src.ui.json_serializer import (
+    component_to_dict,
+    emit,
+    emit_to_log,
+    emit_user_input,
+    new_turn,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +136,7 @@ def create_app(llm_name: str, db_name: str, router_llm_name: str | None = None) 
             user_resolver=user_resolver,
             agent_memory=agent_memory,
             system_prompt_builder=system_prompt_builder,
+            config=AgentConfig(max_tool_iterations=20),
         )
 
         # 9. Question Analyzer
@@ -193,6 +201,10 @@ async def query_agent(
 
     logger.info("Question: %s", question)
 
+    # Start a new turn for this question and log the user input
+    new_turn()
+    emit_user_input(question, user_email=user_email)
+
     if not raw:
         print(f"\n🔍 Question: {question}")
         print("=" * 80)
@@ -202,16 +214,19 @@ async def query_agent(
     complexity = analysis.get("complexity", "SIMPLE")
     sub_questions = analysis.get("sub_questions", [])
 
+    analysis_record = {"type": "analysis", "complexity": complexity, "sub_questions": sub_questions}
     if raw:
-        emit({"type": "analysis", "complexity": complexity, "sub_questions": sub_questions})
-    elif complexity == "COMPLEX":
-        print(f"🧩 Question COMPLEXE détectée. Décomposition en {len(sub_questions)} sous-questions...")
-        for i, sq in enumerate(sub_questions):
-            print(f"  {i+1}. {sq}")
-        print("-" * 80)
+        emit(analysis_record)
     else:
-        print("✨ Question SIMPLE détectée.")
-        print("-" * 80)
+        emit_to_log(analysis_record)
+        if complexity == "COMPLEX":
+            print(f"🧩 Question COMPLEXE détectée. Décomposition en {len(sub_questions)} sous-questions...")
+            for i, sq in enumerate(sub_questions):
+                print(f"  {i+1}. {sq}")
+            print("-" * 80)
+        else:
+            print("✨ Question SIMPLE détectée.")
+            print("-" * 80)
 
     if complexity == "COMPLEX" and sub_questions:
 
@@ -242,10 +257,12 @@ async def query_agent(
                     conversation_id=shared_conversation_id,
                 ):
                     actual_component = _unwrap_component(component)
+                    comp_dict = component_to_dict(actual_component)
 
                     if raw:
-                        emit(component_to_dict(actual_component))
+                        emit(comp_dict)
                     else:
+                        emit_to_log(comp_dict)
                         renderable = formatter.format_component(actual_component)
                         if renderable:
                             formatter.console.print(renderable)
@@ -275,9 +292,11 @@ async def query_agent(
             except Exception as e:
                 logger.error("Sub-question failed: %s — %s", sq, e)
                 error_msg = str(e)
+                error_record = {"type": "sub_question_error", "question": sq, "error": error_msg}
                 if raw:
-                    emit({"type": "sub_question_error", "question": sq, "error": error_msg})
+                    emit(error_record)
                 else:
+                    emit_to_log(error_record)
                     print(f"  ⚠️ Error on this sub-question: {error_msg}")
 
                 results.append({
@@ -294,9 +313,20 @@ async def query_agent(
 
         final_report = await analyzer.synthesize(question, results)
 
+        # Normalize escaped sequences the LLM may return as literal
+        # two-char strings (e.g. "\\n") instead of real newlines.
+        final_report = (
+            final_report
+            .replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace("\\r", "\r")
+        )
+
+        synthesis_record = {"type": "synthesis", "report": final_report}
         if raw:
-            emit({"type": "synthesis", "report": final_report})
+            emit(synthesis_record)
         else:
+            emit_to_log(synthesis_record)
             formatter.console.print(
                 Panel(Markdown(final_report), title="[bold]Final Report[/bold]", border_style="green")
             )
@@ -323,10 +353,12 @@ async def query_agent(
                 conversation_id=None,
             ):
                 actual_component = _unwrap_component(component)
+                comp_dict = component_to_dict(actual_component)
 
                 if raw:
-                    emit(component_to_dict(actual_component))
+                    emit(comp_dict)
                 else:
+                    emit_to_log(comp_dict)
                     renderable = formatter.format_component(actual_component)
                     if renderable:
                         formatter.console.print(renderable)
@@ -345,9 +377,11 @@ async def query_agent(
 
         except Exception as e:
             logger.error("Agent error: %s", e)
+            error_record = {"type": "error", "error": str(e)}
             if raw:
-                emit({"type": "error", "error": str(e)})
+                emit(error_record)
             else:
+                emit_to_log(error_record)
                 print(f"❌ Error: {e}")
 
     if not raw:

@@ -66,6 +66,8 @@ coverage.xml
 
 # logs
 *.log
+*.jsonl
+logs/
 
 # OS files
 .DS_Store
